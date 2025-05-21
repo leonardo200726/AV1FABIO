@@ -1,137 +1,249 @@
-// Armazenamento e manipulação de dados
-class Storage {
-    static dbName = "academicoDB";
-    static storeName = "disciplinas";
+// Armazenamento de disciplinas
+let disciplinas = JSON.parse(localStorage.getItem('disciplinas')) || [];
+let chart = null;
 
-    static async openDb() {
-        const request = indexedDB.open(Storage.dbName, 1);
-        request.onupgradeneeded = () => {
-            const db = request.result;
-            if (!db.objectStoreNames.contains(Storage.storeName)) {
-                db.createObjectStore(Storage.storeName, { autoIncrement: true });
-            }
-        };
+// Elementos DOM
+const disciplinaForm = document.getElementById('disciplinaForm');
+const editDisciplinaForm = document.getElementById('editDisciplinaForm');
+const disciplinasTableBody = document.getElementById('disciplinasTableBody');
+const mediaGeralElement = document.getElementById('mediaGeral');
+const mediaGeralBar = document.getElementById('mediaGeralBar');
+const totalDisciplinasElement = document.getElementById('totalDisciplinas');
+const disciplinasAprovadasElement = document.getElementById('disciplinasAprovadas');
+const editModal = document.getElementById('editModal');
+const closeEditModal = document.getElementById('closeEditModal');
 
-        return new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject("Erro ao abrir o banco de dados.");
-        });
-    }
-
-    static async addDisciplina(disciplina) {
-        const db = await Storage.openDb();
-        const transaction = db.transaction(Storage.storeName, "readwrite");
-        const store = transaction.objectStore(Storage.storeName);
-        const request = store.add(disciplina);
-        return new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject("Erro ao adicionar disciplina.");
-        });
-    }
-
-    static async getDisciplinas() {
-        const db = await Storage.openDb();
-        const transaction = db.transaction(Storage.storeName, "readonly");
-        const store = transaction.objectStore(Storage.storeName);
-        const request = store.getAll();
-        return new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject("Erro ao buscar disciplinas.");
-        });
-    }
-
-    static async deleteDisciplina(id) {
-        const db = await Storage.openDb();
-        const transaction = db.transaction(Storage.storeName, "readwrite");
-        const store = transaction.objectStore(Storage.storeName);
-        const request = store.delete(id);
-        return new Promise((resolve, reject) => {
-            request.onsuccess = () => resolve(request.result);
-            request.onerror = () => reject("Erro ao excluir disciplina.");
-        });
-    }
+// Funções auxiliares
+function calcularMediaPonderada() {
+    if (disciplinas.length === 0) return 0;
+    
+    const somaProdutos = disciplinas.reduce((acc, disciplina) => {
+        return acc + (disciplina.nota * disciplina.peso);
+    }, 0);
+    
+    const somaPesos = disciplinas.reduce((acc, disciplina) => {
+        return acc + disciplina.peso;
+    }, 0);
+    
+    return somaProdutos / somaPesos;
 }
 
-// Função de autenticação
-function authenticateUser(username, password) {
-    // Usamos um armazenamento simples com o localStorage para armazenar credenciais fictícias
-    const storedUsername = localStorage.getItem('username');
-    const storedPassword = localStorage.getItem('password');
-
-    if (username === storedUsername && password === storedPassword) {
-        return true;
-    }
-    return false;
+function getStatusClass(nota) {
+    if (nota >= 7) return 'status-good';
+    if (nota >= 5) return 'status-warning';
+    return 'status-danger';
 }
 
-document.getElementById('login-form').addEventListener('submit', function (e) {
-    e.preventDefault();
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
+function getStatusText(nota) {
+    if (nota >= 7) return 'Aprovado';
+    if (nota >= 5) return 'Recuperação';
+    return 'Reprovado';
+}
 
-    const isAuthenticated = authenticateUser(username, password);
+function contarDisciplinasAprovadas() {
+    return disciplinas.filter(disciplina => disciplina.nota >= 7).length;
+}
 
-    if (isAuthenticated) {
-        document.getElementById('login-section').style.display = 'none';
-        document.getElementById('formulario').style.display = 'block';
-        document.getElementById('resultados').style.display = 'block';
+function atualizarEstatisticas() {
+    const mediaGeral = calcularMediaPonderada();
+    mediaGeralElement.textContent = mediaGeral.toFixed(1);
+    mediaGeralBar.style.width = `${(mediaGeral * 10)}%`;
+    
+    totalDisciplinasElement.textContent = disciplinas.length;
+    disciplinasAprovadasElement.textContent = contarDisciplinasAprovadas();
+    
+    if (mediaGeral >= 7) {
+        mediaGeralBar.style.backgroundColor = '#2ecc71';
+    } else if (mediaGeral >= 5) {
+        mediaGeralBar.style.backgroundColor = '#f1c40f';
     } else {
-        document.getElementById('login-error').textContent = 'Usuário ou senha inválidos.';
+        mediaGeralBar.style.backgroundColor = '#e74c3c';
     }
-});
-
-// Função para calcular média ponderada
-function calcularMedia(disciplinas) {
-    let totalNota = 0;
-    let totalPeso = 0;
-    disciplinas.forEach(disciplina => {
-        totalNota += disciplina.nota * disciplina.peso;
-        totalPeso += disciplina.peso;
-    });
-    return (totalNota / totalPeso).toFixed(2);
 }
 
-// Função para atualizar a tabela e exibir dados
-async function atualizarTabela() {
-    const disciplinas = await Storage.getDisciplinas();
-    const tbody = document.querySelector("#tabela-notas tbody");
-    tbody.innerHTML = "";
-
-    disciplinas.forEach(disciplina => {
+function renderizarTabela() {
+    if (disciplinas.length === 0) {
+        disciplinasTableBody.innerHTML = `
+            <tr class="no-data">
+                <td colspan="5">Nenhuma disciplina cadastrada</td>
+            </tr>
+        `;
+        return;
+    }
+    
+    disciplinasTableBody.innerHTML = '';
+    
+    disciplinas.forEach((disciplina, index) => {
         const row = document.createElement('tr');
+        
+        const statusClass = getStatusClass(disciplina.nota);
+        const statusText = getStatusText(disciplina.nota);
+        
         row.innerHTML = `
-            <td><input type="checkbox" class="checkbox" data-id="${disciplina.id}"></td>
-            <td>${disciplina.nome}</td>
-            <td>${disciplina.nota}</td>
-            <td>${disciplina.peso}</td>
             <td>
-                <button class="btn-editar" onclick="editarDisciplina(${disciplina.id})">Editar</button>
-                <button class="btn-excluir" onclick="excluirDisciplina(${disciplina.id})">Excluir</button>
+                <div style="display: flex; align-items: center;">
+                    <div style="width: 12px; height: 12px; border-radius: 50%; background-color: ${disciplina.cor}; margin-right: 8px;"></div>
+                    ${disciplina.nome}
+                </div>
+            </td>
+            <td>${disciplina.nota.toFixed(1)}</td>
+            <td>${disciplina.peso}</td>
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            <td class="actions">
+                <button class="btn" onclick="editarDisciplina(${index})">Editar</button>
+                <button class="btn btn-danger" onclick="removerDisciplina(${index})">Remover</button>
             </td>
         `;
-        tbody.appendChild(row);
+        
+        disciplinasTableBody.appendChild(row);
     });
-
-    calcularEExibirMedia();
 }
 
-// Função para excluir em massa
-document.getElementById('excluir-massa').addEventListener('click', async () => {
-    const checkboxes = document.querySelectorAll('.checkbox:checked');
-    for (const checkbox of checkboxes) {
-        const id = parseInt(checkbox.getAttribute('data-id'));
-        await Storage.deleteDisciplina(id);
+function atualizarGrafico() {
+    const ctx = document.getElementById('chartContainer');
+    
+    // Destruir o gráfico anterior se existir
+    if (chart) {
+        chart.destroy();
     }
-    atualizarTabela();
+    
+    if (disciplinas.length === 0) {
+        return;
+    }
+    
+    const labels = disciplinas.map(d => d.nome);
+    const notas = disciplinas.map(d => d.nota);
+    const cores = disciplinas.map(d => d.cor);
+    
+    chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Notas',
+                data: notas,
+                backgroundColor: cores,
+                borderColor: cores,
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 10,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    display: false
+                }
+            }
+        }
+    });
+}
+
+function salvarDados() {
+    localStorage.setItem('disciplinas', JSON.stringify(disciplinas));
+}
+
+// Função para editar disciplina
+function editarDisciplina(index) {
+    const disciplina = disciplinas[index];
+    
+    document.getElementById('editIndex').value = index;
+    document.getElementById('editNomeDisciplina').value = disciplina.nome;
+    document.getElementById('editNotaDisciplina').value = disciplina.nota;
+    document.getElementById('editPesoDisciplina').value = disciplina.peso;
+    document.getElementById('editCorDisciplina').value = disciplina.cor;
+    
+    editModal.style.display = 'flex';
+}
+
+// Função para remover disciplina
+function removerDisciplina(index) {
+    if (confirm('Tem certeza que deseja remover esta disciplina?')) {
+        disciplinas.splice(index, 1);
+        salvarDados();
+        atualizarEstatisticas();
+        renderizarTabela();
+        atualizarGrafico();
+    }
+}
+
+// Event Listeners
+disciplinaForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const nome = document.getElementById('nomeDisciplina').value;
+    const nota = parseFloat(document.getElementById('notaDisciplina').value);
+    const peso = parseInt(document.getElementById('pesoDisciplina').value);
+    const cor = document.getElementById('corDisciplina').value;
+    
+    disciplinas.push({
+        nome,
+        nota,
+        peso,
+        cor
+    });
+    
+    salvarDados();
+    atualizarEstatisticas();
+    renderizarTabela();
+    atualizarGrafico();
+    
+    // Limpar o formulário
+    disciplinaForm.reset();
+    document.getElementById('corDisciplina').value = '#3498db';
 });
 
-// Excluir disciplina
-async function excluirDisciplina(id) {
-    await Storage.deleteDisciplina(id);
-    atualizarTabela();
-}
+editDisciplinaForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const index = parseInt(document.getElementById('editIndex').value);
+    const nome = document.getElementById('editNomeDisciplina').value;
+    const nota = parseFloat(document.getElementById('editNotaDisciplina').value);
+    const peso = parseInt(document.getElementById('editPesoDisciplina').value);
+    const cor = document.getElementById('editCorDisciplina').value;
+    
+    disciplinas[index] = {
+        nome,
+        nota,
+        peso,
+        cor
+    };
+    
+    salvarDados();
+    atualizarEstatisticas();
+    renderizarTabela();
+    atualizarGrafico();
+    
+    // Fechar o modal
+    editModal.style.display = 'none';
+});
 
-// Editar disciplina
-async function editarDisciplina(id) {
-    alert("Edição de disciplinas ainda em desenvolvimento!");
-}
+closeEditModal.addEventListener('click', function() {
+    editModal.style.display = 'none';
+});
+
+window.addEventListener('click', function(event) {
+    if (event.target === editModal) {
+        editModal.style.display = 'none';
+    }
+});
+
+// Definindo as funções como globais para acesso no HTML
+window.editarDisciplina = editarDisciplina;
+window.removerDisciplina = removerDisciplina;
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', function() {
+    atualizarEstatisticas();
+    renderizarTabela();
+    atualizarGrafico();
+});
